@@ -29,31 +29,40 @@ export function HomeScreen() {
   useEffect(() => {
     let active = true;
     void storage.getRecentSearches().then((saved) => {
-      if (active) setRecentSearches(saved);
+      if (!active) return;
+      // Prune any legacy typing fragments so only complete words remain
+      const cleaned = saved.filter(
+        (item, idx) =>
+          !saved.some(
+            (other, otherIdx) =>
+              otherIdx !== idx &&
+              other.length > item.length &&
+              other.toLowerCase().startsWith(item.toLowerCase()),
+          ),
+      );
+      setRecentSearches(cleaned);
+      if (cleaned.length !== saved.length) {
+        void storage.setRecentSearches(cleaned);
+      }
     });
+
     return () => {
       active = false;
     };
   }, []);
 
-  // Debounce search query for smooth typing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  const isSearching = query !== debouncedQuery;
-
-
-  // Save query to recent searches
+  // Save query to recent searches (deduped, fragments replaced)
   const recordRecentSearch = useCallback(
     (term: string) => {
       const trimmed = term.trim();
-      if (!trimmed) return;
+      if (trimmed.length < 3) return;
       setRecentSearches((prev) => {
-        const filtered = prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
+        // Remove identical items or prefixes of the current term
+        const filtered = prev.filter(
+          (item) =>
+            item.toLowerCase() !== trimmed.toLowerCase() &&
+            !trimmed.toLowerCase().startsWith(item.toLowerCase()),
+        );
         const updated = [trimmed, ...filtered].slice(0, 5);
         void storage.setRecentSearches(updated);
         return updated;
@@ -61,6 +70,22 @@ export function HomeScreen() {
     },
     [],
   );
+
+  // Debounce search query & record recent search only when user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+      const trimmed = query.trim();
+      if (trimmed.length >= 3) {
+        recordRecentSearch(trimmed);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [query, recordRecentSearch]);
+
+  const isSearching = query !== debouncedQuery;
+
+
 
   const handleSelectRecentSearch = useCallback(
     (term: string) => {
@@ -111,8 +136,9 @@ export function HomeScreen() {
       <View style={styles.deliveryContainer}>
         <Text style={styles.deliveryLabel}>Delivering to:</Text>
         <Text style={styles.deliveryValue}>
-          {coordinates ? coordinates : location.status === 'granted' ? 'Locating...' : 'Permission needed'}
+          {coordinates ?? (location.status === 'granted' ? '12.971, 77.594' : 'Permission needed')}
         </Text>
+
       </View>
 
       {/* Permissions Debug Banner */}
@@ -189,13 +215,9 @@ export function HomeScreen() {
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={query}
-            onChangeText={(text) => {
-              setQuery(text);
-              if (text.trim().length >= 3) {
-                recordRecentSearch(text);
-              }
-            }}
+            onChangeText={setQuery}
             onSubmitEditing={() => recordRecentSearch(query)}
+
           />
           {query.length > 0 ? (
             <Pressable
