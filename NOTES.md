@@ -37,14 +37,16 @@
 
 ## 3. Real-World Issues & Fixes During Testing
 
-1. **Android Location Fix Delay**:
-   - Calling `Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })` was taking too long or hanging on a physical Android device indoors waiting for satellite GPS fix, staying on "Locating...".
-   - **Fix**: Added `Location.getLastKnownPositionAsync()` first for instant retrieval, dropped accuracy to `Accuracy.Lowest` with a 3s timeout race, and provided fallback coordinates so the user is never stuck waiting.
+1. **Android Location Fix Delay & Precise GPS Updates**:
+   - Calling `Location.getCurrentPositionAsync` was slow indoors waiting for satellite GPS fix, and cached positions weren't updating when location changed.
+   - **Fix**: Upgraded to `Location.Accuracy.High` with 4-decimal precision (`toFixed(4)`), queried fresh position first, added `Location.watchPositionAsync` for real-time streaming updates whenever location changes, and added a manual tap-to-refresh on the header.
 2. **Recent Searches Keystroke Spam**:
    - Initial search input was writing every intermediate keystroke ("Adv", "Adva", "Advan", "Advance") into recent searches, overflowing the 5-item limit with fragments.
    - **Fix**: Decoupled the keystroke from storage. Recent searches are now saved only after the user stops typing (600ms debounce) or on keyboard submit. Added prefix pruning so partial fragments get cleanly replaced by full terms.
-3. **Cart & Tab Badge**:
-   - Added live badge counter on the Cart bottom tab so users can see active item counts from anywhere in the app.
+3. **Bottom Navigation Icons & Cart Badge**:
+   - Default BottomTabNavigator rendered missing glyph boxes `[x]` on Android because vector icon fonts were unbundled.
+   - **Fix**: Built crisp native React Native vector icons for Home (clinic/house) and Cart (trolley with pharmacy cross accent) that cleanly tint with active/inactive tab states, alongside live badge counters.
+
 
 ---
 

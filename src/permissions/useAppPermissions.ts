@@ -8,36 +8,36 @@ import type { PermissionStatus } from '../types/models';
 type PermissionInfo = { status: PermissionStatus; blocked: boolean };
 function toPermissionInfo(status: string, canAskAgain: boolean): PermissionInfo { return { status: status === 'granted' ? 'granted' : status === 'undetermined' ? 'undetermined' : canAskAgain ? 'denied' : 'blocked', blocked: status !== 'granted' && !canAskAgain }; }
 
-async function getBestCoordinates(): Promise<string> {
-  // 1. Try last known position first (fastest on real devices)
+async function getFreshCoordinates(): Promise<string | null> {
+  // 1. Prioritize fresh current position with High accuracy (precise location)
+  try {
+    const currentPromise = Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+    });
+    const timeoutPromise = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), 3500);
+    });
+    const fresh = await Promise.race([currentPromise, timeoutPromise]);
+    if (fresh?.coords) {
+      return `${fresh.coords.latitude.toFixed(4)}, ${fresh.coords.longitude.toFixed(4)}`;
+    }
+  } catch {
+    // Current position query failed or timed out
+  }
+
+  // 2. Fallback to cached last known position
   try {
     const last = await Location.getLastKnownPositionAsync();
     if (last?.coords) {
-      return `${last.coords.latitude.toFixed(3)}, ${last.coords.longitude.toFixed(3)}`;
+      return `${last.coords.latitude.toFixed(4)}, ${last.coords.longitude.toFixed(4)}`;
     }
   } catch {
-    // continue to current position
+    // Fallback failed
   }
 
-  // 2. Try current position with lowest accuracy and 3s timeout
-  try {
-    const currentPromise = Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Lowest,
-    });
-    const timeoutPromise = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), 3000);
-    });
-    const pos = await Promise.race([currentPromise, timeoutPromise]);
-    if (pos?.coords) {
-      return `${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)}`;
-    }
-  } catch {
-    // continue to fallback
-  }
-
-  // 3. Fallback coordinates so user is never stuck on "Locating..."
-  return '12.971, 77.594';
+  return null;
 }
+
 
 export function useAppPermissions() {
   const [location, setLocation] = useState<PermissionInfo>({ status: 'undetermined', blocked: false });
@@ -54,8 +54,10 @@ export function useAppPermissions() {
       setLocation(nextLocation);
       setNotifications(toPermissionInfo(notificationResponse.status, notificationResponse.canAskAgain));
       if (nextLocation.status === 'granted') {
-        const coords = await getBestCoordinates();
-        setCoordinates(coords);
+        const coords = await getFreshCoordinates();
+        if (coords) {
+          setCoordinates(coords);
+        }
       } else {
         setCoordinates(null);
       }
@@ -80,8 +82,10 @@ export function useAppPermissions() {
       setLocation(nextLocation);
       setNotifications(toPermissionInfo(notificationResponse.status, notificationResponse.canAskAgain));
       if (nextLocation.status === 'granted') {
-        const coords = await getBestCoordinates();
-        setCoordinates(coords);
+        const coords = await getFreshCoordinates();
+        if (coords) {
+          setCoordinates(coords);
+        }
       }
     } catch {
       // Fallback
@@ -90,6 +94,8 @@ export function useAppPermissions() {
 
   useEffect(() => {
     let isMounted = true;
+    let watcher: Location.LocationSubscription | null = null;
+
     async function init() {
       try {
         if (Platform.OS === 'android') {
@@ -106,11 +112,29 @@ export function useAppPermissions() {
         const nextLocation = toPermissionInfo(locationResponse.status, locationResponse.canAskAgain);
         setLocation(nextLocation);
         setNotifications(toPermissionInfo(notificationResponse.status, notificationResponse.canAskAgain));
+
         if (nextLocation.status === 'granted') {
-          const coords = await getBestCoordinates();
-          if (isMounted) {
+          const coords = await getFreshCoordinates();
+          if (isMounted && coords) {
             setCoordinates(coords);
           }
+
+          // Live location watcher: automatically updates coordinates when user moves or changes location
+          watcher = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              timeInterval: 1500,
+              distanceInterval: 1,
+            },
+            (newPos) => {
+              if (isMounted && newPos?.coords) {
+                setCoordinates(
+                  `${newPos.coords.latitude.toFixed(4)}, ${newPos.coords.longitude.toFixed(4)}`,
+                );
+              }
+            },
+          );
+
         }
       } catch {
         // Native permission APIs can be unavailable in unsupported clients
@@ -127,6 +151,7 @@ export function useAppPermissions() {
 
     return () => {
       isMounted = false;
+      watcher?.remove();
       subscription.remove();
     };
   }, [refresh]);
@@ -135,9 +160,11 @@ export function useAppPermissions() {
     location,
     notifications,
     coordinates,
+    refresh,
     requestPermissions,
     openSettings: () => void Linking.openSettings(),
   };
 }
+
 
 

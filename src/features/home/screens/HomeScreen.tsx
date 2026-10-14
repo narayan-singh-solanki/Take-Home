@@ -19,7 +19,8 @@ import type { Medicine } from '../../../types/models';
 
 export function HomeScreen() {
   const { cartItems, addMedicine, decreaseMedicine, notice, clearNotice } = useCart();
-  const { location, notifications, coordinates, openSettings, requestPermissions } = useAppPermissions();
+  const { location, notifications, coordinates, openSettings, requestPermissions, refresh } = useAppPermissions();
+
 
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -133,13 +134,22 @@ export function HomeScreen() {
       ) : null}
 
       {/* Delivery Header / Location Coordinates */}
-      <View style={styles.deliveryContainer}>
+      <Pressable
+        accessibilityLabel="Current delivery location, tap to refresh"
+        accessibilityRole="button"
+        hitSlop={8}
+        style={styles.deliveryContainer}
+        onPress={() => void refresh()}
+      >
         <Text style={styles.deliveryLabel}>Delivering to:</Text>
         <Text style={styles.deliveryValue}>
-          {coordinates ?? (location.status === 'granted' ? '12.971, 77.594' : 'Permission needed')}
+          {coordinates ?? (location.status === 'granted' ? 'Fetching location...' : 'Permission needed')}
         </Text>
+        {location.status === 'granted' ? (
+          <Text style={styles.refreshIcon}> 🔄</Text>
+        ) : null}
+      </Pressable>
 
-      </View>
 
       {/* Permissions Debug Banner */}
       <View style={styles.permissionBanner}>
@@ -432,6 +442,11 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '700',
   },
+  refreshIcon: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+
   permissionBanner: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
